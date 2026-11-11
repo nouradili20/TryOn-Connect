@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TryOn Connect – POC</title>
+  </head>
+  <body>
+    <main class="app">
+      <header class="toolbar">
+        <h1>TryOn Connect</h1>
+        <div class="actions">
+  <div class="mode-switch" role="radiogroup" aria-label="Moteur d'essayage">
+    <label title="Moteur local MediaPipe + Canvas : rien n'est envoyé">
+      <input type="radio" name="mode" value="fast" checked /> Mode Rapide
+    </label>
+    <label title="Moteur Decart Lucy VTON : la vidéo est envoyée à Decart">
+      <input type="radio" name="mode" value="ai" /> Mode Réaliste IA
+    </label>
+  </div>
+  <span class="fast-only toggles">
+  <label class="toggle" title="Debug : squelette, points du maillage (jaune), contour réel des épaules (vert)">
+    <input type="checkbox" id="chk-skeleton" />
+    Points
+  </label>
+  <label class="toggle" title="Le vêtement épouse le torse (décocher = version rigide)">
+    <input type="checkbox" id="chk-warp" checked />
+    Déformation
+  </label>
+  <label class="toggle" title="Ajuste le haut du vêtement au contour réel des épaules (masque de segmentation)">
+    <input type="checkbox" id="chk-auto-shoulder" checked />
+    Épaules auto
+  </label>
+  <label class="toggle" title="Cheveux et avant-bras passent devant le vêtement">
+    <input type="checkbox" id="chk-occlusion" checked />
+    Occlusion
+  </label>
+  <label class="toggle" title="Segmentation une image sur deux (plus fluide)">
+    <input type="checkbox" id="chk-eco" checked />
+    Éco
+  </label>
+  </span>
+  <button id="btn-start">Démarrer la caméra</button>
+  <button id="btn-stop" disabled>Arrêter</button>
+</div>
+      </header>
+
+      <div class="stage">
+        <!-- La vidéo sert de source ; on affiche le résultat dans le canvas -->
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas"></canvas>
+        <!-- Mode Réaliste IA : flux renvoyé par Decart (déjà en miroir) -->
+        <video id="ai-output" class="ai-output" playsinline muted autoplay hidden></video>
+        <div id="fps" class="fps" hidden>– FPS</div>
+      </div>
+
+      <!-- Mode Réaliste IA : état de la session et maîtrise des coûts -->
+      <section id="ai-panel" class="ai-panel" hidden>
+        <div class="ai-row">
+          <span id="ai-state" class="ai-state" data-state="idle">Inactif</span>
+          <span id="ai-message" class="ai-message"></span>
+        </div>
+        <div class="ai-row ai-meters">
+          <span>Temps restant : <b id="ai-remaining">—</b></span>
+          <span>Consommé : <b id="ai-consumed">0 s</b></span>
+          <span>Coût estimé : <b id="ai-cost">0,00 $</b></span>
+          <button type="button" id="btn-extend" class="secondary" disabled>Prolonger</button>
+        </div>
+        <div class="ai-row">
+          <label>Durée max d'une session
+            <input type="number" id="ai-max" min="10" max="600" step="10" value="60" /> s
+          </label>
+          <span class="hint" id="ai-rate"></span>
+          <button type="button" id="btn-fallback" class="secondary" hidden>Passer en mode rapide</button>
+        </div>
+      </section>
+
+      <dialog id="consent" class="calib consent">
+        <h2>Mode Réaliste IA : vie privée</h2>
+        <p>Dans ce mode, <b>la vidéo de ta caméra est envoyée en temps réel à un service tiers, Decart</b>,
+          qui la transforme pour t'afficher le vêtement porté.</p>
+        <ul>
+          <li>Notre module n'enregistre <b>aucune</b> image ni vidéo.</li>
+          <li>La session se coupe automatiquement (durée maximale, onglet masqué, personne absente).</li>
+          <li>Chaque seconde de session est facturée par Decart sur le compte du propriétaire de la clé API.</li>
+        </ul>
+        <p>Le traitement par Decart est régi par sa
+          <a href="https://docs.platform.decart.ai/resources/privacy-policy" target="_blank" rel="noopener noreferrer">politique de confidentialité</a>.
+          Le Mode Rapide, lui, fonctionne entièrement sur ton appareil.</p>
+        <div class="calib-buttons">
+          <button type="button" id="consent-decline" class="secondary">Rester en mode rapide</button>
+          <span class="spacer"></span>
+          <button type="button" id="consent-accept">Accepter</button>
+        </div>
+      </dialog>
+
+      <!-- Cabine d'essayage : tout reste dans le navigateur -->
+      <section id="cabin" class="cabin">
+        <div class="cabin-head">
+          <h2>Cabine d'essayage</h2>
+          <div class="cabin-actions">
+            <button type="button" id="btn-copy" class="secondary">Copier la config</button>
+            <button type="button" id="btn-download" class="secondary">Télécharger le PNG détouré</button>
+            <label class="btn-add">
+              + Ajouter des articles
+              <input type="file" id="file-input" multiple accept="image/png,image/jpeg,image/webp" />
+            </label>
+          </div>
+        </div>
+        <div id="gallery" class="gallery" aria-label="Articles à essayer"></div>
+        <p class="hint drop-hint">Astuce : glisse-dépose des images ici. Elles ne quittent jamais ton ordinateur.</p>
+        <p id="gallery-msg" class="hint" role="status"></p>
+      </section>
+
+      <dialog id="calib" class="calib">
+        <h2>Ajuster l'article</h2>
+        <label class="calib-row">Nom
+          <input type="text" id="calib-name" maxlength="60" />
+        </label>
+        <label class="calib-row">Description (IA)
+          <input type="text" id="calib-desc" maxlength="200"
+            placeholder="ex. a black turtleneck knit sweater with short sleeves" />
+        </label>
+        <p class="hint">La description est envoyée au Mode Réaliste IA (l'anglais donne de meilleurs résultats). Vide = le nom est utilisé.</p>
+        <p class="hint">Glisse les repères : <b>G</b> et <b>D</b> = épaules (là où la manche rejoint le corps), ligne = hanches.</p>
+        <div class="calib-stage" id="calib-stage">
+          <canvas id="calib-canvas"></canvas>
+          <div class="calib-hip" id="calib-hip"><span>Hanches</span></div>
+          <div class="calib-handle" id="calib-left"><span>G</span></div>
+          <div class="calib-handle" id="calib-right"><span>D</span></div>
+        </div>
+        <label class="calib-row">Tolérance du fond
+          <input type="range" id="calib-tol" min="0" max="100" step="1" />
+          <output id="calib-tol-val"></output>
+        </label>
+        <p id="calib-msg" class="hint"></p>
+        <div class="calib-buttons">
+          <button type="button" id="calib-recompute" class="secondary">Recalculer les ancres</button>
+          <span class="spacer"></span>
+          <button type="button" id="calib-cancel" class="secondary">Annuler</button>
+          <button type="button" id="calib-apply">Appliquer</button>
+        </div>
+      </dialog>
+      <section class="tuning fast-only">
+  <h2>Ajustement du vêtement</h2>
+
+  <label>Largeur
+    <input type="range" id="rng-width" min="0.8" max="1.8" step="0.01" />
+    <output id="val-width"></output>
+  </label>
+
+  <label>Longueur
+    <input type="range" id="rng-length" min="0.7" max="1.5" step="0.01" />
+    <output id="val-length"></output>
+  </label>
+
+  <label>Décalage col
+    <input type="range" id="rng-offset" min="-0.3" max="0.3" step="0.01" />
+    <output id="val-offset"></output>
+  </label>
+
+  <label title="Remonte les épaules du vêtement (minimum, en fraction de la largeur d'épaules)">Hauteur épaules
+    <input type="range" id="rng-lift" min="0" max="0.3" step="0.01" />
+    <output id="val-lift"></output>
+  </label>
+
+  <label title="Écarte seulement le haut du vêtement (minimum ; taille et hanches inchangées)">Largeur épaules
+    <input type="range" id="rng-spread" min="0.9" max="1.5" step="0.01" />
+    <output id="val-spread"></output>
+  </label>
+
+  <p id="shoulder-info" class="hint"></p>
+
+  <label>Lissage
+    <input type="range" id="rng-smooth" min="0" max="0.95" step="0.05" value="0.6" />
+    <output id="val-smooth"></output>
+  </label>
+
+  <h2>Éclairage et intégration</h2>
+
+  <label>Ombrage
+    <input type="range" id="rng-shade" min="0" max="1" step="0.05" value="0.6" />
+    <output id="val-shade"></output>
+  </label>
+
+  <label>Adoucissement des bords
+    <input type="range" id="rng-feather" min="0" max="1" step="0.05" value="0.4" />
+    <output id="val-feather"></output>
+  </label>
+
+  <label>Masquer le haut d'origine
+    <input type="range" id="rng-hide" min="0" max="1" step="0.05" value="0" />
+    <output id="val-hide"></output>
+  </label>
+
+  <p class="hint">Valeurs à copier dans <code>src/garments.js</code> :</p>
+  <pre id="fit-output"></pre>
+</section>
+
+      <p id="status" class="status">Prêt.</p>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

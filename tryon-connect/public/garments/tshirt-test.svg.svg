@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1200" viewBox="0 0 1000 1200">
+  <!-- Corps du T-shirt -->
+  <path d="M 420 140 Q 500 210 580 140 L 720 170 L 900 330 L 820 440 L 730 380
+           L 740 1100 L 260 1100 L 270 380 L 180 440 L 100 330 L 280 170 Z"
+        fill="#2563eb" fill-opacity="0.85" stroke="#1e3a8a" stroke-width="8"/>
+  <!-- Texte pour vérifier que le vêtement n'est pas inversé -->
+  <text x="500" y="560" font-family="Arial" font-size="110" font-weight="bold"
+        fill="white" text-anchor="middle">TRYON</text>
+  <!-- Ancres visibles (repères de debug, on les enlèvera) -->
+  <circle cx="300" cy="220" r="12" fill="yellow"/>
+  <circle cx="700" cy="220" r="12" fill="yellow"/>
+  <line x1="260" y1="1050" x2="740" y2="1050" stroke="yellow" stroke-width="6"/>
+</svg>
